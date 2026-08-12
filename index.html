@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Book Folding Art Generator</title>
+    <style>
+        :root {
+            --bg: #f4f4f9;
+            --primary: #2c3e50;
+            --accent: #3498db;
+        }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            max-width: 900px; 
+            margin: 40px auto; 
+            padding: 20px; 
+            background-color: var(--bg);
+            color: var(--primary);
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1, h2 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .input-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 1.1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover { background-color: #2980b9; }
+        #preview-canvas {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            margin-top: 15px;
+            background: #fff;
+            image-rendering: pixelated;
+        }
+        .instructions {
+            background: #e8f4f8;
+            padding: 15px;
+            border-left: 4px solid var(--accent);
+            margin: 20px 0;
+            font-size: 0.95em;
+        }
+        #steps-container {
+            max-height: 500px;
+            overflow-y: auto;
+            background: #fafafa;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 1.1em;
+        }
+        #steps-container ul { list-style-type: none; padding: 0; }
+        #steps-container li { padding: 8px 0; border-bottom: 1px dashed #ccc; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Book Folding Pattern Generator</h1>
+    
+    <div class="input-grid">
+        <div class="input-group">
+            <label>Word / Name:</label>
+            <input type="text" id="word" value="Love" placeholder="e.g., Parth">
+        </div>
+        <div class="input-group">
+            <label>Total Numbered Pages (Last printed page):</label>
+            <input type="number" id="totalPages" value="400">
+        </div>
+        <div class="input-group">
+            <label>Book Height (cm):</label>
+            <input type="number" id="bookHeight" value="21" step="0.1">
+        </div>
+        <div class="input-group">
+            <label>Starting Page Number:</label>
+            <input type="number" id="startPage" value="1">
+        </div>
+    </div>
+
+    <button onclick="generatePattern()">Generate Fold Pattern</button>
+
+    <h2>Pattern Preview</h2>
+    <p style="font-size: 0.85em; color: #666;">This visualizes the ink distribution across the leaves of your book.</p>
+    <canvas id="preview-canvas"></canvas>
+
+    <h2>Step-by-Step Folding Instructions</h2>
+    <div class="instructions">
+        <strong>How to fold:</strong> Measure from the top of the outer edge of the page down to the indicated cm marks. Make a pencil mark at both. Fold the top right corner down horizontally to the first mark, and the bottom right corner up horizontally to the second mark.
+    </div>
+    <div id="steps-container">Generate a pattern to see your steps here...</div>
+</div>
+
+<script>
+    function generatePattern() {
+        const word = document.getElementById('word').value;
+        const totalPages = parseInt(document.getElementById('totalPages').value);
+        const bookHeight = parseFloat(document.getElementById('bookHeight').value);
+        let currentPrintedPage = parseInt(document.getElementById('startPage').value);
+
+        // A leaf is one physical piece of paper (2 printed pages)
+        const leaves = Math.floor(totalPages / 2);
+        const canvas = document.getElementById('preview-canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        // Width = number of leaves (1 pixel column per physical page)
+        // Height = high resolution mapping for cm accuracy
+        canvas.width = leaves;
+        const resY = 1000; 
+        canvas.height = resY;
+
+        // Clear and fill white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw the text
+        ctx.fillStyle = 'black';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Font size scaled to take up about 70% of the book height
+        ctx.font = `bold ${resY * 0.7}px serif`;
+        ctx.fillText(word, canvas.width / 2, canvas.height / 2);
+
+        // Extract pixel matrix
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const stepsDiv = document.getElementById('steps-container');
+        let stepsHTML = '<ul>';
+
+        // Loop through every single column (leaf)
+        for (let x = 0; x < leaves; x++) {
+            let firstMarkY = -1;
+            let lastMarkY = -1;
+
+            // Scan top to bottom in this column to find the black ink
+            for (let y = 0; y < resY; y++) {
+                const index = (y * canvas.width + x) * 4;
+                const r = imageData[index]; 
+                
+                // If pixel is dark (part of a letter)
+                if (r < 128) {
+                    if (firstMarkY === -1) {
+                        firstMarkY = y; // First time we hit black, it's the top mark
+                    }
+                    lastMarkY = y; // Keep updating to find the absolute bottom mark
+                }
+            }
+
+            if (firstMarkY !== -1 && lastMarkY !== -1) {
+                // Convert pixel Y coordinates into actual Centimeters
+                const mark1 = ((firstMarkY / resY) * bookHeight).toFixed(1);
+                const mark2 = ((lastMarkY / resY) * bookHeight).toFixed(1);
+                
+                stepsHTML += `<li><strong>Page ${currentPrintedPage}:</strong> Mark at <strong>${mark1} cm</strong> and <strong>${mark2} cm</strong></li>`;
+            } else {
+                // Blank space between letters or margins
+                stepsHTML += `<li><strong style="color:#aaa;">Page ${currentPrintedPage}:</strong> <span style="color:#aaa;">Skip (No fold)</span></li>`;
+            }
+            
+            // Advance by 2 printed pages for the next physical leaf
+            currentPrintedPage += 2; 
+        }
+        
+        stepsHTML += '</ul>';
+        stepsDiv.innerHTML = stepsHTML;
+    }
+</script>
+
+</body>
+</html>
