@@ -57,16 +57,18 @@
             transition: background 0.3s;
         }
         button:hover { background-color: #2980b9; }
+        
+        /* Fixed CSS for the preview to look like a book side */
         #preview-canvas {
             width: 100%;
-            /* Fixed max-height so it doesn't take up your whole screen */
-            max-height: 300px; 
-            object-fit: contain;
+            height: 250px; /* Forces a wide, landscape view */
             border: 1px solid #ddd;
             margin-top: 15px;
             background: #fff;
-            image-rendering: pixelated;
+            border-radius: 4px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.05);
         }
+        
         .instructions {
             background: #e8f4f8;
             padding: 15px;
@@ -86,6 +88,11 @@
         }
         #steps-container ul { list-style-type: none; padding: 0; }
         #steps-container li { padding: 8px 0; border-bottom: 1px dashed #ccc; }
+        
+        /* Mobile Responsiveness */
+        @media (max-width: 600px) {
+            .input-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -100,11 +107,11 @@
         </div>
         <div class="input-group">
             <label>Total Numbered Pages (Last printed page):</label>
-            <input type="number" id="totalPages" value="400">
+            <input type="number" id="totalPages" value="552">
         </div>
         <div class="input-group">
             <label>Book Height (cm) - Top to Bottom:</label>
-            <input type="number" id="bookHeight" value="21" step="0.1">
+            <input type="number" id="bookHeight" value="28" step="0.1">
         </div>
         <div class="input-group">
             <label>Starting Page Number:</label>
@@ -115,7 +122,7 @@
     <button onclick="generatePattern()">Generate Fold Pattern</button>
 
     <h2>Pattern Preview</h2>
-    <p style="font-size: 0.85em; color: #666;">This visualizes the ink distribution across the leaves of your book. The text is stretched to fit the exact number of pages.</p>
+    <p style="font-size: 0.85em; color: #666;">This is how the design will look stretched across the folded pages of your book.</p>
     <canvas id="preview-canvas"></canvas>
 
     <h2>Step-by-Step Folding Instructions</h2>
@@ -137,45 +144,51 @@
         const canvas = document.getElementById('preview-canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-        // Width = number of leaves
-        // Height = high resolution mapping for cm accuracy
+        // Internal resolution mapping
         canvas.width = leaves;
         const resY = 1000; 
         canvas.height = resY;
 
-        // Clear and fill white background
+        // Clear and fill white background on main canvas
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // --- NEW DRAWING LOGIC: Stretch text to fit ---
-        ctx.save();
-        // Move origin to center of canvas
-        ctx.translate(canvas.width / 2, canvas.height / 2);
+        // --- NEW DRAWING LOGIC: Use a virtual canvas to prevent clipping ---
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCanvas.width = 1000;
+        tempCanvas.height = 1000;
         
-        // Base font size for measuring
-        const baseFontSize = 100;
-        ctx.font = `bold ${baseFontSize}px serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        // Fill temp canvas
+        tempCtx.fillStyle = 'white';
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         
-        // Measure how wide the text naturally is
-        const textMetrics = ctx.measureText(word);
-        const textWidth = textMetrics.width;
+        // Setup text on temp canvas
+        tempCtx.fillStyle = 'black';
+        tempCtx.textAlign = 'center';
+        tempCtx.textBaseline = 'middle';
         
-        // Calculate dynamic scaling. 
-        // We want the text to span 90% of the book's pages (width) 
-        // and 70% of the book's height (height).
-        const scaleX = (canvas.width * 0.90) / textWidth;
-        const scaleY = (canvas.height * 0.70) / baseFontSize;
+        // Dynamically size the font so it fits inside the 1000x1000 virtual box
+        let fontSize = 700;
+        tempCtx.font = `bold ${fontSize}px "Arial Black", Arial, sans-serif`;
+        let textMetrics = tempCtx.measureText(word);
         
-        // Apply the stretch
-        ctx.scale(scaleX, scaleY);
+        if (textMetrics.width > 900) {
+            fontSize = Math.floor(fontSize * (900 / textMetrics.width));
+            tempCtx.font = `bold ${fontSize}px "Arial Black", Arial, sans-serif`;
+        }
         
-        // Draw the text (now perfectly stretched)
-        ctx.fillStyle = 'black';
-        ctx.fillText(word, 0, 0);
-        ctx.restore();
-        // ----------------------------------------------
+        // Draw the word in the exact center of the virtual canvas
+        tempCtx.fillText(word, 500, 500);
+        
+        // Stamp the virtual canvas onto the real canvas, stretching it to fit the margins
+        const marginX = Math.floor(leaves * 0.05); // 5% blank pages on front/back
+        const drawWidth = leaves - (marginX * 2);
+        const marginY = Math.floor(resY * 0.15); // Top/bottom margins
+        const drawHeight = resY - (marginY * 2);
+        
+        ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, marginX, marginY, drawWidth, drawHeight);
+        // -------------------------------------------------------------------
 
         // Extract pixel matrix
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -195,9 +208,9 @@
                 // If pixel is dark (part of a letter)
                 if (r < 128) {
                     if (firstMarkY === -1) {
-                        firstMarkY = y; // First time we hit black, it's the top mark
+                        firstMarkY = y; // Top mark
                     }
-                    lastMarkY = y; // Keep updating to find the absolute bottom mark
+                    lastMarkY = y; // Bottom mark
                 }
             }
 
@@ -208,7 +221,7 @@
                 
                 stepsHTML += `<li><strong>Page ${currentPrintedPage}:</strong> Mark at <strong>${mark1} cm</strong> and <strong>${mark2} cm</strong></li>`;
             } else {
-                // Blank space between letters or margins
+                // Blank space
                 stepsHTML += `<li><strong style="color:#aaa;">Page ${currentPrintedPage}:</strong> <span style="color:#aaa;">Skip (No fold)</span></li>`;
             }
             
@@ -222,5 +235,5 @@
 </script>
 
 </body>
-</html>
+            </html>
 
